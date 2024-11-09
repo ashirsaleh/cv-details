@@ -8,53 +8,123 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\View\View;
+use App\Models\Applicant;
 
 class ProfileController extends Controller
 {
-    /**
-     * Display the user's profile form.
-     */
-    public function edit(Request $request): View
+    public function index()
     {
-        return view('profile.edit', [
-            'user' => $request->user(),
-        ]);
+        $applicant = Applicant::latest()->paginate(9); 
+        return view('profile.profiles', compact('applicant'));
     }
 
-    /**
-     * Update the user's profile information.
-     */
-    public function update(ProfileUpdateRequest $request): RedirectResponse
+    public function show($id)
     {
-        $request->user()->fill($request->validated());
+        $applicant = Applicant::with(['education', 'workExperiences', 'skills'])->findOrFail($id);
+        return view('profile.show', compact('applicant'));
+    }
 
-        if ($request->user()->isDirty('email')) {
-            $request->user()->email_verified_at = null;
+    public function create()
+{
+    return view('profile.create');
+}
+
+public function store(Request $request)
+{
+    $validatedData = $request->validate([
+        'full_name' => 'required|string|max:255',
+        'email' => 'required|email|unique:applicants,email|max:255',
+        'phone_number' => 'required|string|max:20',
+        'education.*.institution_name' => 'required|string|max:255',
+        'education.*.degree' => 'required|string|max:255',
+        'education.*.graduation_year' => 'required|digits:4',
+        'work_experiences.*.company_name' => 'required|string|max:255',
+        'work_experiences.*.role' => 'required|string|max:255',
+        'work_experiences.*.duration' => 'required|string|max:255',
+        'skills.*.name' => 'required|string|max:255',
+    ]);
+
+    $applicant = Applicant::create([
+        'full_name' => $validatedData['full_name'],
+        'email' => $validatedData['email'],
+        'phone_number' => $validatedData['phone_number'],
+    ]);
+
+    if (isset($request->education)) {
+        foreach ($request->education as $edu) {
+            $applicant->education()->create($edu);
+        }
+    }
+
+    if (isset($request->work_experiences)) {
+        foreach ($request->work_experiences as $exp) {
+            $applicant->workExperiences()->create($exp);
+        }
+    }
+
+    if (isset($request->skills)) {
+        foreach ($request->skills as $skill) {
+            $applicant->skills()->create($skill);
+        }
+    }
+
+    return redirect()->route('profile.show', $applicant->id)
+        ->with('success', 'Applicant profile created successfully');
+}
+
+    public function edit($id)
+    {
+        $applicant = Applicant::with(['education', 'workExperiences', 'skills'])->findOrFail($id);
+        return view('profile.edit', compact('applicant'));
+    }
+
+    public function update(Request $request, $id)
+    {
+        $validatedData = $request->validate([
+            'full_name' => 'required|string|max:255',
+            'email' => 'required|email|max:255',
+            'phone_number' => 'required|string|max:20',
+            'education.*.institution_name' => 'required|string|max:255',
+            'education.*.degree' => 'required|string|max:255',
+            'education.*.graduation_year' => 'required|digits:4',
+            'work_experiences.*.company_name' => 'required|string|max:255',
+            'work_experiences.*.role' => 'required|string|max:255',
+            'work_experiences.*.duration' => 'required|string|max:255',
+            'skills.*.name' => 'required|string|max:255',
+        ]);
+
+        $applicant = Applicant::findOrFail($id);
+        $applicant->update($validatedData);
+        
+        // Update related models
+        $applicant->education()->delete();
+        $applicant->workExperiences()->delete();
+        $applicant->skills()->delete();
+
+        foreach ($request->education as $edu) {
+            $applicant->education()->create($edu);
         }
 
-        $request->user()->save();
+        foreach ($request->work_experiences as $exp) {
+            $applicant->workExperiences()->create($exp);
+        }
 
-        return Redirect::route('profile.edit')->with('status', 'profile-updated');
-    }
+        foreach ($request->skills as $skill) {
+            $applicant->skills()->create($skill);
+        }
 
-    /**
-     * Delete the user's account.
-     */
-    public function destroy(Request $request): RedirectResponse
+        return redirect()->route('profile.show', $id)->with('success', 'Profile updated successfully');
+        }
+
+    public function destroy(Applicant $applicant)
     {
-        $request->validateWithBag('userDeletion', [
-            'password' => ['required', 'current_password'],
-        ]);
-
-        $user = $request->user();
-
-        Auth::logout();
-
-        $user->delete();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
-        return Redirect::to('/');
+        try {
+            $applicant->delete();
+            return redirect()->route('profiles.index')
+                           ->with('success', 'Profile deleted successfully');
+        } catch (\Exception $e) {
+            return redirect()->route('profiles.index')
+                           ->with('error', 'Error deleting profile');
+        }
     }
 }
